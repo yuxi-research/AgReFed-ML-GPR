@@ -47,6 +47,7 @@ from preprocessing import gen_kfold
 import GPmodel as gp # GP model plus kernel functions and distance matrix calculation
 import model_blr as blr
 import model_rf as rf
+import model_hgb as hgb
 import model_xgb as xgb
 
 # Settings yaml file
@@ -87,6 +88,8 @@ def runmodel(dfsel, model_function, settings):
         # print('mean function:', mean_function)
     if (model_function == 'rf-gp') | (model_function == 'rf'):
         mean_function = 'rf'
+    if (model_function == 'hgb-gp') | (model_function == 'hgb'):
+        mean_function = 'hgb'
     if (model_function == 'xgb-gp') | (model_function == 'xgb'):
         mean_function = 'xgb'
     if model_function == 'gp-only':
@@ -222,6 +225,15 @@ def runmodel(dfsel, model_function, settings):
             ypred_const_train = np.mean(y_train) * y_train_fmean
             ynoise_train = 1e-6 * np.ones(y_train.shape)
             ynoise_pred = 1e-6 * np.ones(y_test.shape)
+        elif mean_function == 'hgb':
+            X_train = dftrain[settings.name_features].values
+            y_train = dftrain[settings.name_target].values
+            X_test = dftest[settings.name_features].values
+            y_test = dftest[settings.name_target].values
+            hgb_model = hgb.hgb_train(X_train, y_train)
+            ypred_hgb_train, ynoise_train, nrmse_hgb_train = hgb.hgb_predict(X_train, hgb_model, y_test = y_train)
+            ypred_hgb, ynoise_pred, nrmse_hgb_test = hgb.hgb_predict(X_test, hgb_model, y_test = y_test)
+            y_train_fmean = ypred_hgb_train
         elif mean_function == 'xgb':
             X_train = dftrain[settings.name_features].values
             y_train = dftrain[settings.name_target].values
@@ -298,6 +310,9 @@ def runmodel(dfsel, model_function, settings):
         elif mean_function == 'const':
             y_pred_zmean = ypred_const
             y_pred_train_zmean = ypred_const_train
+        elif mean_function == 'hgb':
+            y_pred_zmean = ypred_hgb
+            y_pred_train_zmean = ypred_hgb_train
         elif mean_function == 'xgb':
             y_pred_zmean = ypred_xgb
             y_pred_train_zmean = ypred_xgb_train

@@ -2,9 +2,7 @@
 Extreme Gradient Boosting Model.
 Mannual: https://www.kaggle.com/code/stuarthallows/using-xgboost-with-scikit-learn
 		 https://xgboost.readthedocs.io/en/stable/python/python_api.html
-This open-source software is released under the AGPL-3.0 License.
 
-@author: Sebastian Haan, Yuxi Zhang
 """
 
 import matplotlib.pyplot as plt
@@ -21,7 +19,7 @@ from sklearn.metrics import auc, accuracy_score, confusion_matrix, mean_squared_
 from xgboost import XGBRegressor
 
 
-print_info = True
+print_info = False
 
 
 def pred_ints(model, X, percentile=95):
@@ -29,7 +27,7 @@ def pred_ints(model, X, percentile=95):
 	Predict standard deviation and CI using stats of all decision trees
 
 	INPUT
-	model: trained sklearn model
+	model: trained model
 	X: input data matrix with shape (npoints,nfeatures)
 	percentile: percentile of confidence interval
 
@@ -52,14 +50,14 @@ def pred_ints(model, X, percentile=95):
 
 def xgb_train(X_train, y_train, tune=False):
 	"""
-	Trains Random Fortest regression model with trainig data
+	Trains XGB regression model with trainig data
 
 	INPUT
 	X: input data matrix with shape (npoints,nfeatures)
 	y: target varable with shape (npoints)
 
 	RETURN
-	xgb_model: trained sklearn xgb model
+	xgb_model: trained xgb model
 	"""
 
 	if tune:
@@ -132,7 +130,7 @@ def xgb_train_predict(X_train, y_train, X_test, y_test = None, outpath = None):
 	residuals: residuals of prediction
 	"""
 
-	# Train RF
+	# Train XGB
 	xgb_model = xgb_train(X_train, y_train)
 
 	# Predict for X_test
@@ -148,7 +146,7 @@ def xgb_train_predict(X_train, y_train, X_test, y_test = None, outpath = None):
 
 def test_xgb(logspace = False, nsamples = 600, nfeatures = 14, ninformative = 12, noise = 0.2, outpath = None):
 	"""
-	Test RF model on synthetic data
+	Test XGB model on synthetic data
 
 	INPUT
 	logspace: if True, uses logarithmic scale for features
@@ -173,7 +171,7 @@ def test_xgb(logspace = False, nsamples = 600, nfeatures = 14, ninformative = 12
 
 	X_train, X_test, y_train, y_test = train_test_split(Xorig, yorig, test_size=0.5, random_state=42)
 
-	# Run RF
+	# Run XGB
 	y_pred, residual, xgb_model = xgb_train_predict(X_train, y_train, X_test, y_test = y_test, outpath = outpath)
 
 	# Calculate normalized RMSE:

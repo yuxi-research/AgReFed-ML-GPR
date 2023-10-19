@@ -135,9 +135,10 @@ notebooks/loginfo.txt
 
 
 # My files to hide
-# example_GPR/test_notebooks
+automail.py
 example_GPR/notebooks/results_*/
-
 test_*
-hide_*
+hide*
 tmp
+data_driven_model_*
+

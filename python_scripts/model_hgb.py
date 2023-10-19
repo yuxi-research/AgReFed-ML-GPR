@@ -1,18 +1,19 @@
 """
-Random Forest Model with uncertainty estimates and feature importance.
+Histogram-based Gradient Boosting Model.
+Documentation: https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingClassifier.html#sklearn.ensemble.HistGradientBoostingClassifier
 
-This package is part of the machine learning project developed for the Agricultural Research Federation (AgReFed).
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.inspection import permutation_importance
 from scipy.stats import spearmanr
 from sklearn.model_selection import GridSearchCV
+
 
 print_info = False
 
@@ -22,7 +23,7 @@ def pred_ints(model, X, percentile=95):
 	Predict standard deviation and CI using stats of all decision trees
 
 	INPUT
-	model: trained sklearn model
+	model: trained model
 	X: input data matrix with shape (npoints,nfeatures)
 	percentile: percentile of confidence interval
 
@@ -31,57 +32,55 @@ def pred_ints(model, X, percentile=95):
 	err_down: lower bound of confidence interval
 	err_up: upper bound of confidence interval
 	"""
-	preds = []
-	for pred in model.estimators_:
-	    preds.append(pred.predict(X))
-	preds = np.asarray(preds)
-	stddev = np.std(preds, axis =0)
-	err_down = np.percentile(preds, (100 - percentile) / 2., axis = 0)
-	err_up = np.percentile(preds, 100 - (100 - percentile) / 2., axis = 0)
-	return stddev, err_down, err_up
+	# preds = []
+	# for pred in model.estimators_:
+	#     preds.append(pred[0].predict(X))
+	# preds = np.asarray(preds)
+	# stddev = np.std(preds, axis =0)
+	# err_down = np.percentile(preds, (100 - percentile) / 2., axis = 0)
+	# err_up = np.percentile(preds, 100 - (100 - percentile) / 2., axis = 0)
+	# return stddev, err_down, err_up
+
+	return 1e-6, 1e-6, 1e-6
 
 
-def rf_train(X_train, y_train, tune=False):
+def hgb_train(X_train, y_train, tune=False):
 	"""
 	Trains Random Fortest regression model with trainig data
 
 	INPUT
 	X: input data matrix with shape (npoints,nfeatures)
 	y: target varable with shape (npoints)
-	tune: if True, performs grid search CV for hyperparameter tuning
-	RETURN
-	rf_model: trained sklearn RF model
-	"""
 
-	## Add white noise to y_train
-	# print('Adding white noise to training data')
-	# y_train = y_train + np.random.normal(0, 0.1, y_train.shape)
+	RETURN
+	hgb_model: trained sklearn HGB model
+	"""
 
 	if tune:
 		# Grid Search CV
-		rf_reg = RandomForestRegressor(random_state=42)
-		print('Starting Grid Search CV for Random Forest')
-		param_grid = {'n_estimators': [100, 200, 500, 1000], 'max_features': [0.3, 0.5, 0.7, 0.9], 'min_samples_leaf': [1, 2, 3, 4, 5]}
-		grid_search = GridSearchCV(rf_reg, param_grid, cv=5, scoring='neg_mean_squared_error', return_train_score=True)
+		hgb_reg = HistGradientBoostingRegressor(random_state=42)
+		print('Starting Grid Search CV for HGBoosting')
+		param_grid = {'learning_rate':[0.05, 0.1, 0.2], 'max_iter': [100, 200, 500, 1000], 'min_samples_leaf': [1, 2, 3, 4, 5]}
+		grid_search = GridSearchCV(hgb_reg, param_grid, cv=5, scoring='neg_mean_squared_error', return_train_score=True)
 		grid_search.fit(X_train, y_train)
 		best_params = grid_search.best_params_
 		print('Best Parameters', grid_search.best_params_)
-		rf_reg = RandomForestRegressor(**best_params, random_state=42)
+		hgb_reg = HistGradientBoostingRegressor(**best_params, random_state = 42)
 	else:
-		print("Using default hyperparameters for Random Forest")
-		rf_reg = RandomForestRegressor(n_estimators=1000, min_samples_leaf=2, max_features = 0.5, random_state = 42) # 'reg:linear' depreceasted 
+		print("Using default hyperparameters for HGBoosting")
+		hgb_reg = HistGradientBoostingRegressor(learning_rate=0.1, max_iter=1000, min_samples_leaf=2)
 	
-	rf_reg.fit(X_train, y_train)
-	return rf_reg
+	hgb_reg.fit(X_train, y_train)
+	return hgb_reg
 
 
-def rf_predict(X_test, rf_model, y_test = None, outpath = None):
+def hgb_predict(X_test, hgb_model, y_test = None, outpath = None):
 	"""
 	Returns Prediction for Random Forest regression model
 
 	INPUT
 	X_text: input datpoints in shape (ndata,n_feature). THe number of features has to be the same as for the training data
-	xg_model: pre-trained XGboost regression model
+	hgb_model: pre-trained Histogram-based Gradient Boosting regression model
 	y_test: if True, uses true y data for normalized RMSE calculation
 
 	Return
@@ -89,27 +88,29 @@ def rf_predict(X_test, rf_model, y_test = None, outpath = None):
 	ypred_std: standard deviation of prediction
 	rmse_test: RMSE of test data (if y_test is not None)
 	"""
-	ypred = rf_model.predict(X_test)
-	ypred_std, _ , _ = pred_ints(rf_model, X_test, percentile=95)
+	ypred = hgb_model.predict(X_test)
+	ypred_std, _ , _ = pred_ints(hgb_model, X_test, percentile=95)
+
 	if y_test is not None:
 		# calculate RMSE
 		rmse_test = np.sqrt(np.mean((ypred - y_test)**2)) / y_test.std()
-		if print_info: print("Random Forest normalized RMSE Test: ", np.round(rmse_test, 4))
+		if print_info: print("Histogram-based Gradient Boosting normalized RMSE Test: ", np.round(rmse_test, 4))
 		if outpath is not None:
 			plt.figure()  # inches
-			plt.title('Random Forest Test Data')
-			plt.errorbar(y_test, ypred, ypred_std, linestyle='None', marker = 'o', c = 'b')
-			#plt.scatter(y_test, ypred, c = 'b')
+			plt.title('Histogram-based Gradient Boosting Test Data')
+			# plt.errorbar(y_test, ypred, ypred_std, linestyle='None', marker = 'o', c = 'b')
+			plt.scatter(y_test, ypred, c = 'b')
 			plt.xlabel('y True')
 			plt.ylabel('y Predict')
-			plt.savefig(os.path.join(outpath,'RF_test_pred_vs_true.png'), dpi = 300)
+			plt.savefig(os.path.join(outpath, 'HGB_test_pred_vs_true.png'), dpi = 300)
 			plt.close('all')
 	else:
 		rmse_test = None
+
 	return ypred, ypred_std, rmse_test
 
 
-def rf_train_predict(X_train, y_train, X_test, y_test = None, outpath = None):
+def hgb_train_predict(X_train, y_train, X_test, y_test = None, outpath = None):
 	"""
 	Trains Random Forest regression model with trainig data and returns prediction for test data
 
@@ -125,23 +126,23 @@ def rf_train_predict(X_train, y_train, X_test, y_test = None, outpath = None):
 	residuals: residuals of prediction
 	"""
 
-	# Train RF
-	rf_model = rf_train(X_train, y_train)
+	# Train HGB
+	hgb_model = hgb_train(X_train, y_train)
 
 	# Predict for X_test
-	ypred, ypred_std, nrmse_test = rf_predict(X_test, rf_model, y_test = y_test, outpath = outpath)
+	ypred, nrmse_test = hgb_predict(X_test, hgb_model, y_test = y_test, outpath = outpath)
 
 	# calculate square errors
 	if y_test is not None:
 		residual = ypred - y_test
 	else:
 		residual = np.zeros_like(y_test)
-	return ypred, residual
+	return ypred, residual, hgb_model
 
 
-def test_rf(logspace = False, nsamples = 600, nfeatures = 14, ninformative = 12, noise = 0.2, outpath = None):
+def test_hgb(logspace = False, nsamples = 600, nfeatures = 14, ninformative = 12, noise = 0.2, outpath = None):
 	"""
-	Test RF model on synthetic data
+	Test HGB model on synthetic data
 
 	INPUT
 	logspace: if True, uses logarithmic scale for features
@@ -166,8 +167,8 @@ def test_rf(logspace = False, nsamples = 600, nfeatures = 14, ninformative = 12,
 
 	X_train, X_test, y_train, y_test = train_test_split(Xorig, yorig, test_size=0.5, random_state=42)
 
-	# Run RF
-	y_pred, residual = rf_train_predict(X_train, y_train, X_test, y_test = y_test, outpath = outpath)
+	# Run HGB
+	y_pred, residual, hgb_model = hgb_train_predict(X_train, y_train, X_test, y_test = y_test, outpath = outpath)
 
 	# Calculate normalized RMSE:
 	nrmse = np.sqrt(np.nanmean(residual**2)) / y_test.std()
@@ -176,7 +177,6 @@ def test_rf(logspace = False, nsamples = 600, nfeatures = 14, ninformative = 12,
 		print('Normalized RMSE for test data: ', np.round(nrmse,3))
 		print('Normalized ROOT MEDIAM SE for test data: ', np.round(nrmedse,3))
 	#Feature Importance
-	feature_importance = rf_factor_importance(X_train, y_train)
 	if print_info:
 		print('Model correlation coefficients:', coeffs )
-		print('Feature Importance:', feature_importance)
+
