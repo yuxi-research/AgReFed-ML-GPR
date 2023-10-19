@@ -28,3 +28,4 @@ dependencies:
 - setuptools
 - selectio
 - geodata-harvester
+- py-xgboost
