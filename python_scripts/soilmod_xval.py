@@ -5,6 +5,7 @@ Current models implemented:
 - Gaussian Process with bayesian linear regression (BLR) as mean function and sparse spatial covariance function
 - Gaussian Process with random forest (RF) regression as mean function and sparse spatial covariance function
 
+
 Core functions:
 - train baseline models (mean functions): BLR and RF
 - hyperparameter optimisation of GP model
@@ -12,6 +13,8 @@ Core functions:
 - model evaluations: RMSE, NRMSE, R2, uncertainty of predictions
 - residual plots and analysis
 - ranking of best models
+
+See documentation for more details.
 
 User settings, such as input/output paths and all other options, are set in the settings file 
 (Default filename: settings_soilmodel_xval.yaml) 
@@ -22,6 +25,10 @@ Alternatively, the settings file can be specified as a command line argument wit
 See README.md for more information.
 
 This package is part of the machine learning project developed for the Agricultural Research Federation (AgReFed).
+Copyright 2022 Sebastian Haan, Sydney Informatics Hub (SIH), The University of Sydney
+
+This open-source software is released under the LGPL-3.0 License.
+
 """
 
 import numpy as np
@@ -40,6 +47,7 @@ from preprocessing import gen_kfold
 import GPmodel as gp # GP model plus kernel functions and distance matrix calculation
 import model_blr as blr
 import model_rf as rf
+import model_xgb as xgb
 
 # Settings yaml file
 _fname_settings = 'settings_soilmod_xval.yaml'
@@ -54,33 +62,40 @@ def runmodel(dfsel, model_function, settings):
 
     Input:
     ------
-        dfsel: dataframe with data for training and testing (nfold column required to split data)
-        model_function: str, function to train model (supported: 'blr', 'rf', 'blr-gp', 'rf-gp', 'gp-only')
-        settings: settings for model function
+    dfsel: dataframe with data for training and testing (nfold column required to split data)
+    model_function: str, function to train model (supported: 'blr', 'rf', 'blr-gp', 'rf-gp', 'gp-only')
+    settings: settings for model function
 
     Returns:
     --------
-        dfsum: dataframe with summary results
-        stats_summary: list of summary statistics
-        outpath: path to output files
+    dfsum: dataframe with summary results
+    stats_summary: list of summary statistics
+    outpath: path to output files
     """
     outpath_root = settings.outpath
 
     # set conditional mean function
-    if (model_function == 'blr') | (model_function == 'rf'):
+    # if (model_function == 'blr') | (model_function == 'rf') | (model_function == 'const'):
+    if ('-gp' in model_function) | (model_function == 'gp-only'):
+        calc_mean_only = False
+    else:
         # only mean function model
         calc_mean_only = True
-    else:
-        calc_mean_only = False
+
     if (model_function == 'blr-gp') | (model_function == 'blr'):
         mean_function = 'blr'
         # print('mean function:', mean_function)
     if (model_function == 'rf-gp') | (model_function == 'rf'):
         mean_function = 'rf'
+    if (model_function == 'xgb-gp') | (model_function == 'xgb'):
+        mean_function = 'xgb'
     if model_function == 'gp-only':
         mean_function = 'const'
         # print('mean function:', mean_function)
-
+    if model_function == 'const':
+        mean_function = 'const'
+        # print('mean function:', mean_function)
+    
     # get train and test data, here we can include loop over ix for cross validation
     range_nfold = np.sort(dfsel.nfold.unique())
     
@@ -96,6 +111,20 @@ def runmodel(dfsel, model_function, settings):
     nrmedse_nfold = []
     meansspe_nfold = []
     r2_nfold = []
+    lccc_nfold = []
+    nse_nfold = []
+    gp_amplitude_nfold = []
+    gp_noise_std_nfold = []
+    gp_lengthscale_z_nfold = []
+    gp_lengthscale_xy_nfold = []
+    gp_logl_nfold = []
+    lengthscale_nfold = []
+    noise_nfold = []
+
+    #rmse_fmean_nfold = []
+    #nrmse_fmean_nfold = []
+    #rmedse_fmean_nfold = []
+    #nrmedse_fmean_nfold = []
     histresidual = []
     histsspe = []
     # dataframe to hold all predictions:
@@ -108,6 +137,7 @@ def runmodel(dfsel, model_function, settings):
         # update outpath with iteration of cross-validation
         outpath_nfold = os.path.join(outpath, 'nfold_' + str(ix) + '/')
         os.makedirs(outpath_nfold, exist_ok = True)
+        # Normalize all data
 
         # split into train and test data
         dftrain = dfsel[dfsel[settings.name_ixval] != ix].copy()
@@ -130,6 +160,7 @@ def runmodel(dfsel, model_function, settings):
             Xdelta_train = np.asarray([0 * dftrain.z.values, dftrain.y.values * 0, dftrain.x.values * 0.]).T
             Xdelta_test = np.asarray([0 * dftest.z.values, dftest.y.values * 0, dftest.x.values * 0.]).T
 
+
         if mean_function == 'rf':
             # Estimate GP mean function with Random Forest Regressor
             X_train = dftrain[settings.name_features].values
@@ -139,6 +170,8 @@ def runmodel(dfsel, model_function, settings):
             rf_model = rf.rf_train(X_train, y_train)
             ypred_rf_train, ynoise_train, nrmse_rf_train = rf.rf_predict(X_train, rf_model, y_test = y_train)
             ypred_rf, ynoise_pred, nrmse_rf_test = rf.rf_predict(X_test, rf_model, y_test = y_test)
+            # Add a random noise to the mean function
+
             y_train_fmean = ypred_rf_train
             if not calc_mean_only:
                 plt.figure()  # inches
@@ -189,6 +222,15 @@ def runmodel(dfsel, model_function, settings):
             ypred_const_train = np.mean(y_train) * y_train_fmean
             ynoise_train = 1e-6 * np.ones(y_train.shape)
             ynoise_pred = 1e-6 * np.ones(y_test.shape)
+        elif mean_function == 'xgb':
+            X_train = dftrain[settings.name_features].values
+            y_train = dftrain[settings.name_target].values
+            X_test = dftest[settings.name_features].values
+            y_test = dftest[settings.name_target].values
+            xgb_model = xgb.xgb_train(X_train, y_train)
+            ypred_xgb_train, ynoise_train, nrmse_xgb_train = xgb.xgb_predict(X_train, xgb_model, y_test = y_train)
+            ypred_xgb, ynoise_pred, nrmse_xgb_test = xgb.xgb_predict(X_test, xgb_model, y_test = y_test)
+            y_train_fmean = ypred_xgb_train
 
         # Subtract mean function from training data for GP with zero mean
         y_train -= y_train_fmean
@@ -236,6 +278,7 @@ def runmodel(dfsel, model_function, settings):
 
             # Calculate predicted mean values
             points3D_pred = points3D_test.copy()	
+
             print('Computing GP predictions for test set nfold ', ix)
             ypred, ypred_std, logl, gp_train = gp.train_predict_3D(points3D_train, points3D_pred, y_train, ynoise_train, params_gp, Ynoise_pred = ynoise_pred, Xdelta = Xdelta_train)
             ypred_train, ypred_std_train, _ , _ = gp.train_predict_3D(points3D_train, points3D_train, y_train, ynoise_train, params_gp, Ynoise_pred = ynoise_train, Xdelta = Xdelta_train)
@@ -255,10 +298,28 @@ def runmodel(dfsel, model_function, settings):
         elif mean_function == 'const':
             y_pred_zmean = ypred_const
             y_pred_train_zmean = ypred_const_train
+        elif mean_function == 'xgb':
+            y_pred_zmean = ypred_xgb
+            y_pred_train_zmean = ypred_xgb_train
+
 
         y_pred = ypred + y_pred_zmean
         y_pred_train = ypred_train + y_pred_train_zmean
         y_train += y_train_fmean
+
+        # Lin's concordance correlation coefficient
+        def lin_ccc(y_test, y_pred):
+            y_test_mean = np.nanmean(y_test)
+            y_pred_mean = np.nanmean(y_pred)
+            s_xy = np.nansum((y_test - y_test_mean) * (y_pred - y_pred_mean))
+            s_xx = np.nansum((y_test - y_test_mean) ** 2)
+            s_yy = np.nansum((y_pred - y_pred_mean) ** 2)
+            ccc = 2 * s_xy / (s_xx + s_yy + (y_test_mean - y_pred_mean) ** 2)
+            return ccc
+        lccc = lin_ccc(y_test, y_pred)
+
+        # Calculate Nash Sutcliffe Efficiency
+        nse = 1 - np.nansum((y_test - y_pred)**2) / np.nansum((y_test - np.nanmean(y_test))**2)
 
         # Calculate Residual, RMSE, R2, SSPE
         residual_test = y_pred - y_test
@@ -267,15 +328,24 @@ def runmodel(dfsel, model_function, settings):
         rmedse = np.sqrt(np.median(residual_test**2))
         rmedse_norm = rmedse / y_test.std()
         #sspe = residual_test**2 / ystd_test**2
-        sspe = residual_test**2 / (ypred_std**2)
+        if model_function == 'const':
+            sspe = residual_test * np.nan
+        else:
+            sspe = residual_test**2 / (ypred_std**2)
         r2 = 1 - np.nanmean(residual_test**2) / np.nanmean((y_test - y_test.mean())**2)
         if not calc_mean_only:
             print("GP Marginal Log-Likelihood: ", np.round(logl,2))
+        
+        # Print summary statistics
+        print("RMSE: ",np.round(rmse,4))
         print("Normalized RMSE: ",np.round(rmse_norm,4))
         print("Normalized ROOT MEDIAN SE: ",np.round(rmedse_norm,4))
         print("R^2: ", np.round(r2,4))
+        print("Lin's CCC: ", np.round(lccc,4))
+        print("Nash Sutcliffe Efficiency: ", np.round(nse,4))
         print("Mean Theta: ", np.round(np.mean(sspe),4))
         print("Median Theta: ", np.round(np.median(sspe)))
+
 
         # Save results in dataframe
         dfpred[settings.name_target + '_predict'] = y_pred
@@ -283,6 +353,20 @@ def runmodel(dfsel, model_function, settings):
         dfpred['Residual'] = residual_test
         dfpred['Residual_squared'] = residual_test**2
         dfpred['Theta'] = sspe
+        dfpred['R2'] = r2
+        dfpred['RMSE'] = rmse
+        dfpred['RMEDSE'] = rmedse
+        dfpred['LinCCC'] = lccc
+        dfpred['NSE'] = nse
+
+        if not calc_mean_only:
+            dfpred['amplitude'] = params_gp[0]
+            dfpred['noise_std'] = params_gp[1]
+            dfpred['lengthscale_z'] = params_gp[2]
+            dfpred['lengthscale_xy'] = params_gp[3]
+            dfpred['LogL'] = logl
+        dfpred['RMSE_norm'] = rmse_norm
+        dfpred['RMEDSE_norm'] = rmedse_norm
         dfpred.to_csv(os.path.join(outpath_nfold, settings.name_target + '_results_nfold' + str(ix) + '.csv'), index = False)
         # add to dataframe for all folds
         dfpred_all = pd.concat([dfpred_all, dfpred], axis=0, ignore_index = True)
@@ -323,7 +407,7 @@ def runmodel(dfsel, model_function, settings):
         plt.legend(loc = 'upper left')
         plt.xlabel(settings.name_target + ' True')
         plt.ylabel(settings.name_target + ' Predict')
-        plt.savefig(os.path.join(outpath_nfold,'pred_vs_true' + settings.name_target + '_nfold' + str(ix) + '.png'), dpi = 300)
+        plt.savefig(os.path.join(outpath_nfold, 'pred_vs_true' + settings.name_target + '_nfold' + str(ix) + '.png'), dpi = 300)
         if _show:
             plt.show()
         plt.close('all')
@@ -334,6 +418,19 @@ def runmodel(dfsel, model_function, settings):
         nrmedse_nfold.append(rmedse_norm)
         meansspe_nfold.append(np.mean(sspe))
         r2_nfold.append(r2)
+        lccc_nfold.append(lccc)
+        nse_nfold.append(nse)
+
+        if not calc_mean_only:
+            gp_amplitude_nfold.append(params_gp[0])
+            gp_noise_std_nfold.append(params_gp[1])
+            gp_lengthscale_z_nfold.append(params_gp[2])
+            gp_lengthscale_xy_nfold.append(params_gp[3])
+            gp_logl_nfold.append(logl)
+        #rmse_fmean_nfold.append(rmse_fmean)
+        #nrmse_fmean_nfold.append(rmse_norm_fmean)
+        #rmedse_fmean_nfold.append(rmedse_fmean)
+        #nrmedse_fmean_nfold.append(rmedse_norm_fmean)
         histsspe.append(sspe)
         histresidual.append(residual_test)
 
@@ -362,13 +459,46 @@ def runmodel(dfsel, model_function, settings):
     nrmedse_nfold = np.asarray(nrmedse_nfold)
     meansspe_nfold = np.asarray(meansspe_nfold)
     r2_nfold = np.asarray(r2_nfold)
-    dfsum = pd.DataFrame({'nfold': range_nfold, 'RMSE': rmse_nfold, 'nRMSE': nrmse_nfold, 'RMEDIANSE': rmedse_nfold, 'nRMEDIANSE': nrmedse_nfold, 'R2': r2_nfold, 'Theta': meansspe_nfold})
-    dfsum.to_csv(os.path.join(outpath, settings.name_target + 'nfold_summary_stats.csv'), index = False)
+    lccc_nfold = np.asarray(lccc_nfold)
+    nse_nfold = np.asarray(nse_nfold)
+    gp_amplitude_nfold = np.asarray(gp_amplitude_nfold)
+    gp_noise_std_nfold = np.asarray(gp_noise_std_nfold)
+    gp_lengthscale_z_nfold = np.asarray(gp_lengthscale_z_nfold)
+    gp_lengthscale_xy_nfold = np.asarray(gp_lengthscale_xy_nfold)
+    #rmse_fmean_nfold = np.asarray(rmse_fmean_nfold)
+    #nrmse_fmean_nfold = np.asarray(nrmse_fmean_nfold)
+    #rmedse_fmean_nfold = np.asarray(rmedse_fmean_nfold)
+    #nrmedse_fmean_nfold = np.asarray(nrmedse_fmean_nfold)
+    #dfsum = pd.DataFrame({'nfold': range_nfold, 'RMSE': rmse_nfold, 'nRMSE': nrmse_nfold, 'RMEDIANSE': rmedse_nfold, 'nRMEDIANSE': nrmedse_nfold, 'Theta': meansspe_nfold, 'RMSE_fmean': rmse_fmean_nfold, 'nRMSE_fmean': nrmse_fmean_nfold, 'RMEDIANSE_fmean': rmedse_fmean_nfold, 'nRMEDIANSE_fmean': nrmedse_fmean_nfold})
+    if calc_mean_only:
+        dfsum = pd.DataFrame({'nfold': range_nfold, 'RMSE': rmse_nfold, 'nRMSE': nrmse_nfold, 
+                              'RMEDIANSE': rmedse_nfold, 'nRMEDIANSE': nrmedse_nfold, 
+                              'R2': r2_nfold, 'LCCC': lccc_nfold, 'NSE': nse_nfold,
+                              'Theta': meansspe_nfold,
+                              } )
+    else:
+        dfsum = pd.DataFrame({'nfold': range_nfold, 'RMSE': rmse_nfold, 'nRMSE': nrmse_nfold, 
+                              'RMEDIANSE': rmedse_nfold, 'nRMEDIANSE': nrmedse_nfold, 
+                              'R2': r2_nfold, 'LCCC': lccc_nfold, 'NSE': nse_nfold,
+                              'Theta': meansspe_nfold,
+                              'amplitude': gp_amplitude_nfold,
+                              'noise_std': gp_noise_std_nfold,
+                              'lengthscale_z': gp_lengthscale_z_nfold,
+                              'lengthscale_xy': gp_lengthscale_xy_nfold,
+                              'LogL': gp_logl_nfold})
+    
+    
+    dfsum.to_csv(os.path.join(outpath, settings.name_target + '_nfold_summary_stats.csv'), index = False)
 
     print("---- X-validation Summary -----")
+    print("Mean RMSE: " + str(np.round(np.mean(rmse_nfold),3)) + " +/- " + str(np.round(np.std(rmse_nfold),3)))
     print("Mean normalized RMSE: " + str(np.round(np.mean(nrmse_nfold),3)) + " +/- " + str(np.round(np.std(nrmse_nfold),3)))
+    #print("Mean normalized RMSE of Meanfunction: " + str(np.round(np.mean(nrmse_fmean_nfold),3)) + " +/- " + str(np.round(np.std(nrmse_fmean_nfold),3)))
     print("Median normalized RMSE: " + str(np.round(np.median(nrmedse_nfold),3)))
+    #print("Median normalized RMSE of Meanfunction: " + str(np.round(np.median(nrmedse_fmean_nfold),3)))
     print("Mean R^2: " + str(np.round(np.mean(r2_nfold),3)))
+    print("Mean LCCC: " + str(np.round(np.mean(lccc_nfold),3)))
+    print("Mean NSE: " + str(np.round(np.mean(nse_nfold),3)))
     print("Mean Theta: " + str(np.round(np.mean(meansspe_nfold),3)) + " +/- " + str(np.round(np.std(meansspe_nfold),3)))
 
     histresidual_cut = truncate_data(histresidual, 1)
@@ -386,13 +516,25 @@ def runmodel(dfsel, model_function, settings):
         plt.show()
     plt.close('all')
 
-    stats_summary = (np.round(np.mean(nrmse_nfold),3), np.round(np.std(nrmse_nfold),3),  
-    np.round(np.mean(meansspe_nfold),3), np.round(np.std(meansspe_nfold),3),  
-    np.round(np.mean(r2_nfold),3), np.round(np.std(r2_nfold),3) )
+    # stats_summary = (np.round(np.mean(nrmse_nfold),3), np.round(np.std(nrmse_nfold),3),  
+    # np.round(np.mean(meansspe_nfold),3), np.round(np.std(meansspe_nfold),3),  
+    # np.round(np.mean(r2_nfold),3), np.round(np.std(r2_nfold),3),
+    # np.round(np.mean(lccc_nfold),3), np.round(np.std(lccc_nfold),3),
+    # np.round(np.mean(nse_nfold),3), np.round(np.std(nse_nfold),3),
+    # np.round(np.mean(rmse_nfold),3), np.round(np.std(rmse_nfold),3),)
+
+    stats_summary = {'RMSE'  : (np.round(np.mean(rmse_nfold),3), np.round(np.std(rmse_nfold),3)),
+                    'NRMSE': (np.round(np.mean(nrmse_nfold),3), np.round(np.std(nrmse_nfold),3)),
+                    'R2'    : (np.round(np.mean(meansspe_nfold),3), np.round(np.std(meansspe_nfold),3)),
+                    'LCCC'  : (np.round(np.mean(lccc_nfold),3), np.round(np.std(lccc_nfold),3)),
+                    'NSE'   : (np.round(np.mean(nse_nfold),3), np.round(np.std(nse_nfold),3)),
+                    'Theta' : (np.round(np.mean(meansspe_nfold),3), np.round(np.std(meansspe_nfold),3)),
+                    }
+
     return dfsum, stats_summary, outpath
 
 
-######################### Main Function ############################
+######################### Main Script ############################
 
 def main(fname_settings):
     """
@@ -482,6 +624,7 @@ def main(fname_settings):
         r2_meanfunction.append(stats_summary[4])
         r2_meanfunction_std.append(stats_summary[5])
 
+
     #End of xval loop over all models
     #Print best models sorted with nRMSE
     ix_meanfunction_sorted = [nrmse_meanfunction.index(x) for x in sorted(nrmse_meanfunction)]
@@ -491,6 +634,7 @@ def main(fname_settings):
     print('')
     for ix in ix_meanfunction_sorted:
         print(f'{settings.model_functions[ix]}: Mean nRMSE = {nrmse_meanfunction[ix]} +/- {nrmse_meanfunction_std[ix]}, Mean R2= {r2_meanfunction[ix]} +/- {r2_meanfunction_std[ix]}, Theta = {theta_meanfunction[ix]} +/- {theta_meanfunction_std[ix]}')
+
 
 
 if __name__ == '__main__':

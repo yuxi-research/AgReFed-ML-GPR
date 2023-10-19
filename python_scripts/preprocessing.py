@@ -201,8 +201,62 @@ def round_nearest_base(x, base=0.5):
         return None
 
 
+def split_time(df, split = 0.7, label_split = 'train_test_fold', id_unique = ['z'], precision_unique = None):
+    if id_unique is None:
+        # Use index as unique ID
+        id_unique = df.index.values
+        df["ID_unique"] = id_unique
+    elif isinstance(id_unique, list):
+        # Use joint list of features as unique ID
+        id_array = np.empty(shape = (len(id_unique), len(df)), dtype='<U21')
+        for i in range(len(id_unique)):
+            col = id_unique[i]
+            # check if pandas column is numeric
+            if pd.api.types.is_numeric_dtype(df[col]):
+                if precision_unique is not None:
+                    # Round to precision
+                    id_array[i] = round_nearest_base(df[col].values, base=precision_unique).astype(str)
+                else:
+                    # Use as is
+                    id_array[i] = df[col].values.astype(str)
+            else:
+                id_array[i] = df[col].values 
+        # Create unique ID by concatenating strings
+        df["ID_unique"] = id_array[0]
+        for i in range(1, len(id_unique)):
+            df["ID_unique"] = df["ID_unique"] + '_' + id_array[i]
+    else:
+        # Use column name as unique ID
+        if pd.api.types.is_numeric_dtype(df[id_unique]):
+            if precision_unique is not None:
+                # Round to precision
+                df["ID_unique"] = round_nearest_base(df[id_unique].values, base=precision_unique).astype(str)
+            else:
+                # Use as is
+                df["ID_unique"] = df[id_unique].astype(str)
+        else:
+            df["ID_unique"] = df[id_unique]
 
-def gen_kfold(df, nfold, label_nfold = 'Label_nfold', id_unique = None, precision_unique = None):
+    # Sor df by unique ID
+    df = df.sort_values(by = id_unique)
+    df['new_id']  = np.arange(len(df))
+    
+    nunique = df['ID_unique'].unique().astype(float)
+    nunique.sort()
+
+    # Find the split(*100%) quantile of nunique
+    value_split = np.quantile(nunique, split)
+    # New column starting from 0 to the length of df
+    # Calculate length of train data 
+    # Frist split(*100%) of data is train data
+    df[label_split] = 0
+    df.loc[df['new_id'].values > value_split, label_split] = 1
+    # remove temporary columns
+    df.drop(columns = ['ID_unique', 'new_id'], inplace = True)
+    return df
+
+
+def gen_kfold(df, nfold, label_nfold = 'Label_nfold', id_unique = None, precision_unique = None, sort=False):
     """
     Generate k-fold non-overlapping cross-validation indices for dataframe.
     This function supports generating a unique identifier and precision based on coordinates or other features.
@@ -256,14 +310,28 @@ def gen_kfold(df, nfold, label_nfold = 'Label_nfold', id_unique = None, precisio
             df["ID_unique"] = df[id_unique]
 
     # Create nfold levels:
+    
+    if sort:
+        # Sort by unique ID
+        df = df.sort_values(by = id_unique)
+
     nunique = df['ID_unique'].unique()
+
+    # if sort:
+    #     nunique.sort()
+    
     df['new_id'] = 0
     ix = 1
     for unique in nunique:
         df.loc[df['ID_unique'] == unique, 'new_id'] = ix
         ix += 1
     size = int(len(nunique)/nfold)
-    np.random.shuffle(nunique)
+
+    if not sort:
+        # print('shuffling unique IDs')
+        np.random.seed(42)
+        np.random.shuffle(nunique)
+
     df[label_nfold] = 0
     start = 0
     for i in range(nfold - 1):
@@ -272,6 +340,8 @@ def gen_kfold(df, nfold, label_nfold = 'Label_nfold', id_unique = None, precisio
         df.loc[df['ID_unique'].isin(sub),label_nfold] = i + 1
         start = stop
     df.loc[df[label_nfold] == 0, label_nfold] = nfold
+    # df[id_unique + ['Date', 'new_id','ID_unique', label_nfold]].to_csv('test_gen_kfold.csv')
+
     # remove temporary columns
     if isinstance(id_unique, list) | (precision_unique is not None):
         # keep ID_unique column
@@ -279,7 +349,7 @@ def gen_kfold(df, nfold, label_nfold = 'Label_nfold', id_unique = None, precisio
     else:
         df.drop(columns = ['ID_unique', 'new_id'], inplace = True)
     return df
-        
+    
 
 def preprocess_grid(inpath, infname, outpath, outfname, name_features, categorical = None):
     """
