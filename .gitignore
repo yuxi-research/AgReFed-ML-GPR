@@ -135,4 +135,9 @@ notebooks/loginfo.txt
 
 
 # My files to hide
-example_GPR
+# example_GPR/test_notebooks
+example_GPR/notebooks/results_*/
+
+test_*
+hide_*
+tmp

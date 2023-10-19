@@ -1,0 +1,70 @@
+# Settings for spatial temporal cross-validation model
+
+# Input path
+inpath: "../dataset/"
+
+# Output path
+outpath: 'results_testmodel_temporal/' 
+
+# File name with soil data and corresponding covariates
+infname: "dataset_weekly.csv"
+
+# set project coordinate reference system
+project_crs: "EPSG:28355"
+
+# Name of target for prediction (column name in dataframe that corresponds to top soil layer)
+name_target: 'SM'
+
+# Name of x (Easting) and y (Northing) coordinate columns
+colname_xcoord: 'Easting'
+colname_ycoord: 'Northing'
+
+# Choose model function, currently implemented:
+#'blr': bayesian linear regression with power transformation
+#'rf': Random Forest Regression
+#'blr-gp' Gaussian Process with bayesian linear regression as mean function
+#'rf-gp' Gaussian Process with random forest regression as mean function
+model_functions: [ 'rf', 'blr', 'rf-gp', 'blr-gp' ]
+
+# Name of column for index of test data for Xfold cross-validation (to separate train and test data), only relevant for option 'calc_xval':
+name_ixval: 'nfold'
+
+# Is third dimension of prediction the vertical depth ('vertical') or temporal ('temporal')?
+axistype: 'temporal' # 'vertical' # 'temporal'
+
+### If axistype='vertical', select minimum and maximum of depth for data selection [in m]
+#colname_zmin: 0 # minimum depth for prediction (in meters), starting at zero depth to minus zmax 
+#colname_zmax: 1 # 1.5 maximum depth for prediction (in meters), starting at zero depth to minus zmax 
+#colname_zcoord: 'z'
+
+### If axistype='temporal', select minimum and maximum of time for data selection [in m] # Yuxi: in days
+colname_tmin: 47
+colname_tmax: 156
+colname_tcoord: 'Week'
+
+## Name of covariates in soil training data or the cross-validation data
+
+name_features: ['DepthBot',
+ 'DepthTop',
+ 'Bucket',
+ 'ET20m_df_999',
+ 'CLY',
+ 'SOC',
+ 'NDVI_95',
+ 'SND',
+ 'Rain_df_999',
+ 'TWI',
+ 'ET20m_df_90',
+ 'ET20m_df_99',
+ 'ET20m',
+ 'Rain',
+ 'NDVI_50',
+ 'ET20m_df_95',
+ 'Total',
+ 'Rain_df_99',
+ 'Rain_df_50',
+ 'ET20m_df_70',
+ 'ET20m_df_50']
+
+ ## Number of cross-validations:
+nfold:  3 # 2/3 training, 1/3 test
