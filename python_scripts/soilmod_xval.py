@@ -540,7 +540,7 @@ def runmodel(dfsel, model_function, settings):
 
     stats_summary = {'RMSE'  : (np.round(np.mean(rmse_nfold),3), np.round(np.std(rmse_nfold),3)),
                     'NRMSE': (np.round(np.mean(nrmse_nfold),3), np.round(np.std(nrmse_nfold),3)),
-                    'R2'    : (np.round(np.mean(meansspe_nfold),3), np.round(np.std(meansspe_nfold),3)),
+                    'R2'    : (np.round(np.mean(r2_nfold),3), np.round(np.std(r2_nfold),3)),
                     'LCCC'  : (np.round(np.mean(lccc_nfold),3), np.round(np.std(lccc_nfold),3)),
                     'NSE'   : (np.round(np.mean(nse_nfold),3), np.round(np.std(nse_nfold),3)),
                     'Theta' : (np.round(np.mean(meansspe_nfold),3), np.round(np.std(meansspe_nfold),3)),
