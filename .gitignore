@@ -136,3 +136,8 @@ notebooks/loginfo.txt
 
 # My files to hide
 example_GPR
+hide
+hide_*
+notebooks_*
+notebooks
+model_*
